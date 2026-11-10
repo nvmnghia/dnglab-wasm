@@ -10,9 +10,13 @@
 
 pub mod ffi;
 
-use std::ffi::{OsString, c_void};
+#[cfg(not(target_family = "wasm"))]
+use std::ffi::OsString;
+use std::ffi::c_void;
 use std::sync::OnceLock;
 
+// libjxl is loaded at runtime, which is impossible on wasm
+#[cfg(not(target_family = "wasm"))]
 use libloading::Library;
 
 use ffi::*;
@@ -39,7 +43,7 @@ const LIBJXL_CANDIDATES: &[&str] = &[
   "/usr/local/lib/libjxl.dylib",
 ];
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_family = "wasm")))]
 const LIBJXL_CANDIDATES: &[&str] = &["libjxl.so.0.12", "libjxl.so.0.11", "libjxl.so"];
 
 /// Samples of a tile, interleaved per pixel
@@ -84,8 +88,10 @@ impl TileSettings {
 }
 
 /// Functions of the loaded libjxl
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 struct LibJxl {
   /// Keeps the library loaded, the function pointers below point into it
+  #[cfg(not(target_family = "wasm"))]
   _library: Library,
   version: (u32, u32, u32),
   create: JxlEncoderCreateFn,
@@ -109,6 +115,7 @@ struct LibJxl {
 ///
 /// # Safety
 /// `T` must be the function pointer type of the symbol.
+#[cfg(not(target_family = "wasm"))]
 unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> Result<T, String> {
   let symbol = unsafe { library.get::<T>(name.as_bytes()) }.map_err(|err| format!("libjxl has no function {}: {}", name, err))?;
   Ok(*symbol)
@@ -116,6 +123,7 @@ unsafe fn symbol<T: Copy>(library: &Library, name: &str) -> Result<T, String> {
 
 impl LibJxl {
   /// Load libjxl from `RAWLER_LIBJXL` or the default library names
+  #[cfg(not(target_family = "wasm"))]
   fn load() -> Result<Self, String> {
     let candidates: Vec<OsString> = match std::env::var_os(LIBJXL_ENV) {
       Some(path) => vec![path],
@@ -139,6 +147,7 @@ impl LibJxl {
     ))
   }
 
+  #[cfg(not(target_family = "wasm"))]
   fn from_library(library: Library, name: &OsString) -> Result<Self, String> {
     // SAFETY: the function pointer types match the libjxl API
     unsafe {
@@ -178,6 +187,13 @@ impl LibJxl {
         _library: library,
       })
     }
+  }
+}
+
+impl LibJxl {
+  #[cfg(target_family = "wasm")]
+  fn load() -> Result<Self, String> {
+    Err("JPEG XL encoding is not available on wasm".to_string())
   }
 }
 
